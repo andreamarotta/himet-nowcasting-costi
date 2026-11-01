@@ -1,0 +1,281 @@
+<meta charset="utf-8">
+<title>Costi nowcasting HIMET</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: pannello controlli a sinistra (stack su mobile), risultati a destra; tipografia tecnica, neutri caldi, accento blu. */
+:root{
+  --bg:#f7f6f2; --surface:#ffffff; --fg:#161614; --fg2:#5a5853; --line:#e2e0d8; --accent:#1c5cab;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#6250d6; --s8:#e34948;
+  --font-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --bg:#161615; --surface:#1f1f1d; --fg:#f0efec; --fg2:#b5b3aa; --line:#33322f; --accent:#6da7ec;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767; color-scheme:dark } }
+:root[data-theme="dark"]{ --bg:#161615; --surface:#1f1f1d; --fg:#f0efec; --fg2:#b5b3aa; --line:#33322f; --accent:#6da7ec;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767; color-scheme:dark }
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:14px;line-height:1.45;margin:0;
+  padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1{font-size:22px;margin:0 0 4px;letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:15px;margin:0 0 10px;letter-spacing:.01em}
+.sub{color:var(--fg2);margin:0 0 18px;max-width:70ch}
+.wrap{max-width:1180px;margin:0 auto}
+.grid{display:grid;grid-template-columns:300px minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:820px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
+.ctl{display:flex;flex-direction:column;gap:12px}
+.ctl label{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--fg2)}
+.ctl label span.v{color:var(--fg);font-family:var(--font-mono);font-size:12px}
+select,input[type=number]{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.chk{flex-direction:row !important;align-items:center;gap:8px !important;color:var(--fg) !important}
+.chk input{accent-color:var(--accent);width:16px;height:16px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.kpi{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--bg)}
+.kpi .l{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg2)}
+.kpi .n{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+.kpi .d{font-size:12px;color:var(--fg2)}
+.stack{display:flex;flex-direction:column;gap:20px}
+svg{display:block;width:100%;height:auto;overflow:visible}
+svg text{font-family:var(--font-body);fill:var(--fg2);font-size:11px}
+svg text.lab{fill:var(--fg);font-size:11.5px}
+svg text.val{fill:var(--fg);font-variant-numeric:tabular-nums}
+svg .grid line{stroke:var(--line);stroke-width:1}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--fg2);margin-top:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+table{border-collapse:collapse;width:100%;font-size:12.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;color:var(--fg2);font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+td.n,th.n{text-align:right}
+.tbl{overflow-x:auto}
+.tip{position:fixed;pointer-events:none;background:var(--fg);color:var(--bg);padding:6px 9px;border-radius:6px;font-size:12px;max-width:280px;z-index:5;opacity:0;transition:opacity .1s}
+.note{font-size:12px;color:var(--fg2);margin-top:8px;max-width:80ch}
+button.lnk{font:inherit;background:none;border:0;color:var(--accent);cursor:pointer;padding:0;text-decoration:underline}
+button.lnk:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.bar rect{cursor:pointer}
+.bar.sel text.lab{font-weight:600}
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400&display=swap">
+<div class="wrap">
+<h1>Costi di esercizio del nowcasting HIMET: on-premise e AWS</h1>
+<p class="sub">Costo annuo e TCO delle alternative infrastrutturali per i 18 modelli LSTM di bias correction, in funzione di quanto spesso si riaddestra e quanto spesso si esegue l'inferenza. Prezzi AWS eu-central-1 del 29-30 ottobre 2026, hardware e energia Italia novembre 2026, IVA esclusa. Il costo include, se spuntati, il personale che gestisce la soluzione e l'avviamento una tantum ammortizzato sull'orizzonte. Le assunzioni sono modificabili in <code>infra/assumptions.yaml</code>.</p>
+<div class="grid">
+  <aside class="panel ctl" aria-label="Parametri">
+    <h2>Parametri</h2>
+    <label>Riaddestramento dei 18 modelli <select id="rt"></select></label>
+    <label>Hyperparameter search completa <select id="hpo"><option value="0">mai</option><option value="1" selected>una volta l'anno</option><option value="2">due volte l'anno</option></select></label>
+    <label>Trial per modello nella HPO <span class="v" id="trialsV"></span><input type="range" id="trials" min="10" max="100" step="10" value="100"></label>
+    <label>Frequenza di inferenza <select id="cyc"></select></label>
+    <label>Mesi operativi all'anno <span class="v" id="monthsV"></span><input type="range" id="months" min="1" max="12" step="1" value="12"></label>
+    <label>Orizzonte (anni) <select id="hor"><option>3</option><option selected>5</option><option>7</option></select></label>
+    <label>Istanze EC2 sempre accese: tariffa <select id="pricing"><option value="od">on-demand</option><option value="sp1">riservata 1 anno</option><option value="sp3">riservata 3 anni</option></select></label>
+    <label class="chk"><input type="checkbox" id="staff" checked> Includi personale interno</label>
+    <label class="chk"><input type="checkbox" id="support"> Includi AWS Business Support+</label>
+    <label class="chk"><input type="checkbox" id="setup" checked> Includi avviamento una tantum (ammortizzato)</label>
+    <label>Canone servizio gestito (EUR/mese, illustrativo) <span class="v" id="canoneV"></span><input type="range" id="canone" min="0" max="1500" step="50" value="300"></label>
+    <label>Cambio USD→EUR <input type="number" id="fx" step="0.01" min="0.5" max="1.5"></label>
+    <p class="note">Ore di training stimate con questi parametri: <span id="hours"></span></p>
+  </aside>
+  <main class="stack">
+    <section class="panel">
+      <div class="kpis" id="kpis"></div>
+      <h2>Costo annuo per opzione, scenario corrente</h2>
+      <div id="rank"></div>
+      <div class="legend" id="legendCats"></div>
+      <p class="note">Clicca una barra per vedere il dettaglio delle voci. Le barre sono ordinate dalla più economica.</p>
+    </section>
+    <section class="panel">
+      <h2 id="detTitle">Dettaglio voci</h2>
+      <div class="tbl"><table id="det"></table></div>
+    </section>
+    <section class="panel">
+      <h2>Come cambia il costo annuo con la frequenza di retraining</h2>
+      <div id="lineRt"></div>
+      <div class="legend" id="legendRt"></div>
+    </section>
+    <section class="panel">
+      <h2>Come cambia il costo annuo con la frequenza di inferenza</h2>
+      <div id="lineInf"></div>
+      <div class="legend" id="legendInf"></div>
+    </section>
+    <section class="panel">
+      <h2>Tabella completa (scenario corrente)</h2>
+      <div class="tbl"><table id="full"></table></div>
+    </section>
+  </main>
+</div>
+</div>
+<div class="tip" id="tip"></div>
+<script>
+const A = {"assumptions": {"meta": {"data_valutazione": "2026-11-01", "regione_aws_riferimento": "eu-central-1 (Francoforte)", "note": "Francoforte e' la regione di riferimento perche' Milano (eu-south-1) ha come GPU solo g4dn, costa il 5-10% in piu' su CPU/Lambda e non ha g5/g6. I prezzi on-demand Linux sono del 29-30 ottobre 2026.\n"}, "fx": {"usd_to_eur": 0.894}, "workload": {"n_modelli": 18, "inferenza": {"secondi_per_ciclo_cpu": 3.5, "ram_gb_picco": 0.6, "secondi_cold_start_serverless": 2.0}, "retraining": {"epoche_medie_per_modello": 60, "secondi_per_epoca_cpu": 37.7, "ram_gb_picco": 1.5}, "hpo": {"n_trials": 100, "epoche_per_trial": 80, "frazione_epoche_effettive": 0.6}}, "scenari": {"retraining_per_anno": {"mai": 0, "annuale": 1, "trimestrale": 4, "mensile": 12, "settimanale": 52, "giornaliero": 365}, "hpo_per_anno": {"mai": 0, "annuale": 1}, "cicli_inferenza_al_giorno": {"ogni 5 min": 288, "ogni 15 min": 96, "ogni 30 min": 48, "ogni ora": 24, "ogni 3 ore": 8, "ogni 6 ore": 4, "ogni 12 ore": 2}, "mesi_operativi_per_anno": {"tutto l'anno": 12, "stagione invernale (nov-mar)": 5}, "orizzonte_anni": 5}, "avviamento": {"tariffa_eur_giorno": 500, "giornate": {"V": 3, "A0": 3, "A": 4, "B": 5, "C": 8, "ec2": 12, "serverless": 20, "sagemaker": 20, "gestito": 0}}, "onprem": {"energia_eur_kwh": 0.28, "ammortamento_anni": 5, "ore_sysadmin_mese": 4, "costo_orario_personale_eur": 45, "ups_eur": 650, "tiers": {"V": {"nome": "V: macchina virtuale su infrastruttura HIMET esistente (2 vCPU, 8 GB)", "prezzo_eur": 0, "ups_eur": 0, "w_idle": 15, "w_carico": 40, "supporto_eur_anno": 0, "speed_training": 0.6}, "A0": {"nome": "A0: micro (Raspberry Pi 5 8 GB o mini-PC N100, 16 GB, SSD)", "prezzo_eur": 250, "ups_eur": 80, "w_idle": 5, "w_carico": 15, "supporto_eur_anno": 0, "speed_training": 0.25}, "A": {"nome": "A: mini-PC CPU (P3 Tiny / NUC 14 Pro, 32 GB, 1 TB)", "prezzo_eur": 1400, "w_idle": 12, "w_carico": 65, "supporto_eur_anno": 60, "speed_training": 0.8}, "B": {"nome": "B: workstation GPU (Dell Pro Max T2, 64 GB, RTX 2000 Ada)", "prezzo_eur": 4150, "w_idle": 50, "w_carico": 180, "supporto_eur_anno": 120, "speed_training": 2.5}, "C": {"nome": "C: server rack 1U (16 core, 128 GB ECC, NVIDIA L4, 2 PSU)", "prezzo_eur": 16000, "w_idle": 150, "w_carico": 330, "supporto_eur_anno": 500, "speed_training": 4.0}}}, "aws": {"ec2": {"t4g.medium": {"vcpu": 2, "ram_gb": 4, "gpu": null, "od_usd_h": 0.0384, "ri1_usd_h": 0.0253, "ri3_usd_h": 0.0173, "spot_usd_h": 0.0154, "speed_training": 0.4, "burstable": true}, "c7i.xlarge": {"vcpu": 4, "ram_gb": 8, "gpu": null, "od_usd_h": 0.2037, "ri1_usd_h": 0.1343, "ri3_usd_h": 0.0924, "spot_usd_h": 0.094, "speed_training": 0.8}, "m7i.large": {"vcpu": 2, "ram_gb": 8, "gpu": null, "od_usd_h": 0.12075, "ri1_usd_h": 0.0799, "ri3_usd_h": 0.0548, "spot_usd_h": 0.057, "speed_training": 0.5}, "g4dn.xlarge": {"vcpu": 4, "ram_gb": 16, "gpu": "T4 16 GB", "od_usd_h": 0.658, "ri1_usd_h": 0.449, "ri3_usd_h": 0.32, "spot_usd_h": 0.324, "speed_training": 3.0}, "g6.xlarge": {"vcpu": 4, "ram_gb": 16, "gpu": "L4 24 GB", "od_usd_h": 1.0064, "ri1_usd_h": 0.6552, "ri3_usd_h": 0.4619, "spot_usd_h": 0.569, "speed_training": 4.0}}, "istanze_alwayson": {"EC2 piccola burstable sempre accesa": "t4g.medium", "EC2 CPU sempre accesa": "c7i.xlarge", "EC2 GPU sempre accesa": "g4dn.xlarge"}, "istanza_training_cpu": "c7i.xlarge", "istanza_training_gpu": "g4dn.xlarge", "dedicated_fee_usd_h": 2.0, "dedicated_markup": 0.1, "overhead_avvio_job_min": 5, "sagemaker": {"istanze_usd_h": {"ml.g4dn.xlarge": 0.921, "ml.c7i.xlarge": 0.24444, "ml.m5.large": 0.138, "ml.t2.medium": 0.064}, "istanza_training_gpu": "ml.g4dn.xlarge", "istanza_training_cpu": "ml.c7i.xlarge", "speed_training": {"gpu": 3.0, "cpu": 0.8}, "istanza_endpoint": "ml.m5.large", "istanza_batch": "ml.m5.large", "batch_transform_min_per_job": 8, "serverless": {"usd_gb_s": 2e-05, "usd_per_richiesta": 0.0, "memoria_gb": 3, "fattore_lentezza": 1.5}}, "lambda": {"usd_gb_s": 1.66667e-05, "usd_per_richiesta": 2e-07, "memoria_gb": 3, "fattore_lentezza": 2.0}, "fargate": {"usd_vcpu_h": 0.04656, "usd_gb_h": 0.00511, "vcpu": 1, "gb": 2, "minuti_per_task": 2}, "eventbridge_usd_per_milione": 1.15, "ebs_gp3_usd_gb_mese": 0.0952, "ebs_gb": 50, "s3_usd_gb_mese": 0.0245, "costi_fissi_usd_mese": {"ec2": 8, "serverless": 6, "sagemaker": 8}, "support_business": {"min_usd_mese": 29, "frazione": 0.09}, "ore_gestione_mese": {"ec2": 3, "serverless": 1.5, "sagemaker": 1.5}, "canone_gestito_eur_mese": 300}}, "workload": {"retrain_hours_cpu_ref": 11.31, "hpo_hours_cpu_ref": 904.8000000000002, "retrain_epochs_total": 1080, "hpo_epochs_total": 86400.0}};
+const HOURS = 8760;
+const CATS = [["Hardware / calcolo","--s1"],["Energia / storage / rete","--s3"],["Supporto","--s4"],["Avviamento (una tantum)","--s5"],["Personale","--s2"],["Canone gestito","--s7"]];
+const KEY = {
+  "On-prem A0: micro (Raspberry Pi 5 8 GB o mini-PC N100, 16 GB, SSD)":"On-prem A0 (Pi 5 / N100)",
+  "On-prem A: mini-PC CPU (P3 Tiny / NUC 14 Pro, 32 GB, 1 TB)":"On-prem A (mini-PC CPU)",
+  "On-prem B: workstation GPU (Dell Pro Max T2, 64 GB, RTX 2000 Ada)":"On-prem B (workstation GPU)",
+  "EC2 piccola burstable sempre accesa (t4g.medium)":"EC2 t4g.medium sempre accesa",
+  "EC2 CPU sempre accesa (c7i.xlarge)":"EC2 c7i.xlarge sempre accesa",
+  "Serverless: Lambda + AWS Batch Spot":"Serverless (Lambda + Batch Spot)",
+  "SageMaker: Serverless Inference + Training Jobs":"SageMaker serverless + Training Jobs",
+};
+const SERIES_COL = ["--s1","--s2","--s3","--s4","--s5","--s6","--s7","--s8"];
+const fmt = x => Math.round(x).toLocaleString("it-IT") + " €";
+const fmtH = h => h<1 ? Math.round(h*60)+" min" : (h<48 ? h.toFixed(1)+" h" : (h/24).toFixed(1)+" giorni");
+const cat = l => { l=l.toLowerCase(); if(l.includes("personale"))return "Personale"; if(l.includes("avviamento"))return "Avviamento (una tantum)"; if(l.includes("canone"))return "Canone gestito"; if(l.includes("supporto")||l.includes("support"))return "Supporto"; if(l.includes("energia")||l.includes("storage")||l.includes("ebs")||l.includes("eventbridge"))return "Energia / storage / rete"; return "Hardware / calcolo"; };
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+// ---------------- modello (specchio di cost_model.py) ----------------
+function core(s){
+  const a=A.assumptions, aws=a.aws, on=a.onprem, w=a.workload;
+  const usd = x => x*s.fx;
+  const nM=w.n_modelli;
+  const retrainEp = nM*w.retraining.epoche_medie_per_modello;
+  const hpoEp = nM*s.trials*w.hpo.epoche_per_trial*w.hpo.frazione_epoche_effettive;
+  const sec = w.retraining.secondi_per_epoca_cpu;
+  const retrainH = sp => retrainEp*sec/sp/3600, hpoH = sp => hpoEp*sec/sp/3600;
+  const trainH = sp => s.rt*retrainH(sp)+s.hpo*hpoH(sp);
+  const hoursOn = HOURS*s.months/12, cyclesY = s.cyc*365*s.months/12;
+  const staff = h => (s.staff&&h>0) ? {"Personale (gestione)": h*12*on.costo_orario_personale_eur} : {};
+  const av=a.avviamento; const setup = k => (s.setup && av.giornate[k]>0) ? {"Avviamento (una tantum, ammortizzato)": av.giornate[k]*av.tariffa_eur_giorno/s.hor} : {};
+  const ec2h = (inst,pr)=> usd(aws.ec2[inst][{od:"od_usd_h",sp1:"ri1_usd_h",sp3:"ri3_usd_h"}[pr]]);
+  const spot = inst => usd(aws.ec2[inst].spot_usd_h);
+  const smh = inst => usd(aws.sagemaker.istanze_usd_h[inst]);
+  const fixed = (kind,compute)=>{ const it={"Storage, log, rete (fissi)": usd(aws.costi_fissi_usd_mese[kind])*12}; if(s.support){ it["AWS Business Support+"]=Math.max(usd(aws.support_business.min_usd_mese)*12, compute*aws.support_business.frazione);} return it; };
+  const out={};
+  for(const k of Object.keys(on.tiers)){ const t=on.tiers[k]; const th=trainH(t.speed_training);
+    const over=Math.max(0, th-0.5*HOURS), local=th-over;
+    const kwh=(t.w_idle*HOURS+(t.w_carico-t.w_idle)*local)/1000;
+    const it={ "Hardware (ammortamento)":(t.prezzo_eur+(t.ups_eur??on.ups_eur))/on.ammortamento_anni, "Supporto/garanzia":t.supporto_eur_anno, "Energia":kwh*on.energia_eur_kwh };
+    if(over>0){ const g=aws.istanza_training_gpu; it["Training eccedente (GPU spot in cloud)"]=over*t.speed_training/aws.ec2[g].speed_training*spot(g); }
+    out["On-prem "+t.nome]={ ...it, ...staff(on.ore_sysadmin_mese), ...setup(k), _h:th, _h1:retrainH(t.speed_training), _hpo:hpoH(t.speed_training) }; }
+  for(const [label,inst] of Object.entries(aws.istanze_alwayson)){
+    const sp=aws.ec2[inst].speed_training, hours = s.pricing!=="od"?HOURS:hoursOn, th=trainH(sp);
+    const over=Math.max(0, th-(aws.ec2[inst].burstable?0:0.5*hours)); const g=aws.istanza_training_gpu; const gsp=aws.ec2[g].speed_training;
+    const compute=hours*ec2h(inst,s.pricing); const it={}; it[`EC2 ${inst} (${{od:"on-demand",sp1:"riservata 1 anno",sp3:"riservata 3 anni"}[s.pricing]})`]=compute;
+    if(over>0) it["Training eccedente (GPU spot)"]=over*sp/gsp*spot(g);
+    it["Disco EBS"]=usd(aws.ebs_gp3_usd_gb_mese)*aws.ebs_gb*12; Object.assign(it,fixed("ec2",compute),staff(aws.ore_gestione_mese.ec2),setup("ec2")); it._h=th; it._h1=retrainH(sp); it._hpo=hpoH(sp);
+    out[`${label} (${inst})`]=it; }
+  function trainOD(mode){ let best=null; for(const kind of ["cpu","gpu"]){ let inst,sp,price;
+      if(mode==="sagemaker"){ inst=aws.sagemaker["istanza_training_"+kind]; sp=aws.sagemaker.speed_training[kind]; price=smh(inst);} else { inst=aws["istanza_training_"+kind]; sp=aws.ec2[inst].speed_training; price=mode==="spot"?spot(inst):ec2h(inst,"od"); }
+      const h=trainH(sp)+(s.rt*1+s.hpo*nM)*aws.overhead_avvio_job_min/60; const c=h*price; if(!best||c<best[0]) best=[c,`${inst} (${mode})`,h,retrainH(sp),hpoH(sp)]; } return best; }
+  function serverless(inf,tr){ const it={}; const n=cyclesY;
+    if(inf==="lambda"){ const l=aws.lambda; const secs=(w.inferenza.secondi_cold_start_serverless+w.inferenza.secondi_per_ciclo_cpu)*l.fattore_lentezza; it["Lambda (inferenza)"]=n*(secs*l.memoria_gb*usd(l.usd_gb_s)+usd(l.usd_per_richiesta)); }
+    else if(inf==="fargate"){ const f=aws.fargate; it["Fargate task schedulato (inferenza)"]=n*f.minuti_per_task/60*(usd(f.usd_vcpu_h)*f.vcpu+usd(f.usd_gb_h)*f.gb); }
+    else if(inf==="sm_serverless"){ const m=aws.sagemaker.serverless; const secs=(w.inferenza.secondi_cold_start_serverless+w.inferenza.secondi_per_ciclo_cpu)*m.fattore_lentezza; it["SageMaker Serverless Inference"]=n*(secs*m.memoria_gb*usd(m.usd_gb_s)+usd(m.usd_per_richiesta)); }
+    else if(inf==="sm_endpoint"){ it[`SageMaker endpoint ${aws.sagemaker.istanza_endpoint}`]=hoursOn*smh(aws.sagemaker.istanza_endpoint); }
+    else if(inf==="sm_batch"){ it["SageMaker Batch Transform (per ciclo)"]=n*aws.sagemaker.batch_transform_min_per_job/60*smh(aws.sagemaker.istanza_batch); }
+    it["EventBridge/Step Functions"]=usd(aws.eventbridge_usd_per_milione)*n/1e6*2;
+    const [c,label,h,h1,hh]=trainOD(tr); it[`Training a consumo: ${label}`]=c; it._h=h; it._h1=h1; it._hpo=hh;
+    const kind=(tr==="sagemaker"||inf.startsWith("sm_"))?"sagemaker":"serverless";
+    const sum=Object.entries(it).filter(([k])=>!k.startsWith("_")).reduce((p,[,v])=>p+v,0);
+    Object.assign(it,fixed(kind,sum),staff(aws.ore_gestione_mese[kind]),setup(kind)); return it; }
+  out["Serverless: Lambda + AWS Batch Spot"]=serverless("lambda","spot");
+  out["Serverless: Fargate + AWS Batch Spot"]=serverless("fargate","spot");
+  out["Serverless: Lambda + AWS Batch on-demand"]=serverless("lambda","od");
+  out["SageMaker: Serverless Inference + Training Jobs"]=serverless("sm_serverless","sagemaker");
+  out["SageMaker: endpoint real-time + Training Jobs"]=serverless("sm_endpoint","sagemaker");
+  out["SageMaker: Batch Transform per ciclo + Training Jobs"]=serverless("sm_batch","sagemaker");
+  return out;
+}
+function model(s){
+  const out=core(s);
+  const base=core({...s,staff:false,setup:false})["Serverless: Lambda + AWS Batch Spot"];
+  const man={...base,"Canone servizio gestito (da quotare)":s.canone*12};
+  const av=A.assumptions.avviamento; if(s.setup && av.giornate.gestito>0) man["Avviamento (una tantum, ammortizzato)"]=av.giornate.gestito*av.tariffa_eur_giorno/s.hor;
+  out["Servizio gestito (partner) su serverless"]=man;
+  return Object.entries(out).map(([name,it])=>({name,items:it,total:Object.entries(it).filter(([k])=>!k.startsWith("_")).reduce((p,[,v])=>p+v,0),h:it._h,h1:it._h1,hpo:it._hpo})).map(r=>({...r,tco:r.total*s.hor}));
+}
+
+// ---------------- stato e controlli ----------------
+const $=id=>document.getElementById(id);
+const SC=A.assumptions.scenari;
+for(const [k,v] of Object.entries(SC.retraining_per_anno)){ const o=document.createElement("option"); o.value=v; o.textContent=k; if(v===12)o.selected=true; $("rt").appendChild(o); }
+for(const [k,v] of Object.entries(SC.cicli_inferenza_al_giorno)){ const o=document.createElement("option"); o.value=v; o.textContent=k; if(v===96)o.selected=true; $("cyc").appendChild(o); }
+$("fx").value=A.assumptions.fx.usd_to_eur;
+function readState(){ return { rt:+$("rt").value, hpo:+$("hpo").value, trials:+$("trials").value, cyc:+$("cyc").value, months:+$("months").value, hor:+$("hor").value, pricing:$("pricing").value, staff:$("staff").checked, support:$("support").checked, setup:$("setup").checked, canone:+$("canone").value, fx:+$("fx").value||0.9 }; }
+let selected=null;
+function restore(){ try{ const st=JSON.parse(localStorage.getItem("himet-costi")||"null"); if(!st)return; for(const k of ["rt","hpo","trials","cyc","months","hor","pricing","canone","fx"]) if(st[k]!=null) $(k).value=st[k]; if(st.staff!=null)$("staff").checked=st.staff; if(st.support!=null)$("support").checked=st.support; if(st.setup!=null)$("setup").checked=st.setup; }catch(e){} }
+function persist(s){ try{ localStorage.setItem("himet-costi",JSON.stringify(s)); }catch(e){} }
+
+// ---------------- rendering ----------------
+const tip=$("tip");
+function showTip(e,html){ tip.innerHTML=html; tip.style.opacity=1; const x=Math.min(e.clientX+12, innerWidth-300), y=e.clientY+12; tip.style.left=x+"px"; tip.style.top=y+"px"; }
+function hideTip(){ tip.style.opacity=0; }
+const esc=t=>String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;");
+
+function renderRank(res,s){
+  const sorted=[...res].sort((a,b)=>a.total-b.total); const max=Math.max(...sorted.map(r=>r.total));
+  const W=760, L=10, R=90, rowH=40, H=sorted.length*rowH+10; const sx=v=>L+v/max*(W-L-R);
+  let g=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Costo annuo per opzione">`;
+  sorted.forEach((r,i)=>{ const y=i*rowH; let x=sx(0); const sel=r.name===selected?" sel":"";
+    g+=`<g class="bar${sel}" data-name="${esc(r.name)}"><text class="lab" x="${L}" y="${y+12}">${esc(r.name)}</text>`;
+    for(const [c,v] of CATS){ const val=Object.entries(r.items).filter(([k])=>!k.startsWith("_")&&cat(k)===c).reduce((p,[,v])=>p+v,0); if(val<=0)continue; const w=sx(val)-sx(0); g+=`<rect x="${x}" y="${y+17}" width="${Math.max(w-2,0.5)}" height="16" rx="${c===CATS[CATS.length-1][0]||x+w>=sx(r.total)-0.01?3:0}" fill="${css(v)}" data-cat="${c}" data-val="${val}"></rect>`; x+=w; }
+    g+=`<text class="val" x="${sx(r.total)+6}" y="${y+30}">${fmt(r.total)}</text></g>`; });
+  g+="</svg>"; $("rank").innerHTML=g;
+  $("rank").querySelectorAll("rect").forEach(el=>{ el.addEventListener("mousemove",e=>showTip(e,`<b>${esc(el.dataset.cat)}</b><br>${fmt(+el.dataset.val)} / anno`)); el.addEventListener("mouseleave",hideTip); });
+  $("rank").querySelectorAll("g.bar").forEach(el=>el.addEventListener("click",()=>{ selected=el.dataset.name; update(); }));
+  $("legendCats").innerHTML=CATS.map(([c,v])=>`<span><i style="background:${css(v)}"></i>${c}</span>`).join("");
+}
+
+function renderKpis(res,s){
+  const sorted=[...res].sort((a,b)=>a.total-b.total);
+  const best=sorted[0]; const onp=sorted.find(r=>r.name.startsWith("On-prem")); const aws=sorted.find(r=>!r.name.startsWith("On-prem")&&!r.name.startsWith("Servizio"));
+  const k=[["Opzione più economica",fmt(best.total)+" / anno",best.name],["On-prem più economica",fmt(onp.total)+" / anno",onp.name],["AWS più economica",fmt(aws.total)+" / anno",aws.name],[`TCO ${s.hor} anni, on-prem − AWS self-managed`,fmt(onp.tco-aws.tco),onp.tco>aws.tco?"a favore di AWS":"a favore dell'on-prem"]];
+  $("kpis").innerHTML=k.map(([l,n,d])=>`<div class="kpi"><div class="l">${l}</div><div class="n">${n}</div><div class="d">${esc(d)}</div></div>`).join("");
+}
+
+function renderDetail(res){
+  const r=res.find(x=>x.name===selected)||[...res].sort((a,b)=>a.total-b.total)[0]; selected=r.name;
+  $("detTitle").textContent="Dettaglio voci: "+r.name;
+  let rows=Object.entries(r.items).filter(([k])=>!k.startsWith("_")).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${cat(k)}</td><td class="n">${fmt(v)}</td><td class="n">${(100*v/r.total).toFixed(0)}%</td></tr>`).join("");
+  rows+=`<tr><th>Totale annuo</th><th></th><th class="n">${fmt(r.total)}</th><th></th></tr>`;
+  const extra=r.h1!=null?`<tr><td colspan="4" style="color:var(--fg2)">Su questa opzione un retraining completo dura circa ${fmtH(r.h1)}, una HPO completa ${fmtH(r.hpo)}; ore di training all'anno: ${fmtH(r.h)}.</td></tr>`:"";
+  $("det").innerHTML=`<thead><tr><th>Voce</th><th>Categoria</th><th class="n">EUR/anno</th><th class="n">Quota</th></tr></thead><tbody>${rows}${extra}</tbody>`;
+}
+
+function lineChart(elId,legId,xs,series){
+  const W=760,H=270,L=70,R=16,T=14,B=46; const max=Math.max(1,...series.flatMap(s=>s.ys)); const nice=Math.ceil(max/500)*500;
+  const sx=i=>L+i*(W-L-R)/(xs.length-1), sy=v=>T+(H-T-B)*(1-v/nice);
+  let g=`<svg viewBox="0 0 ${W} ${H}" role="img"><g class="grid">`;
+  for(let i=0;i<=5;i++){ const v=nice*i/5; g+=`<line x1="${L}" x2="${W-R}" y1="${sy(v)}" y2="${sy(v)}"></line><text x="${L-8}" y="${sy(v)+4}" text-anchor="end">${fmt(v)}</text>`; }
+  g+="</g>"; xs.forEach((x,i)=>g+=`<text x="${sx(i)}" y="${H-B+18}" text-anchor="middle">${esc(x)}</text>`);
+  series.forEach((s,k)=>{ const col=css(SERIES_COL[k]); const d=s.ys.map((v,i)=>`${i?"L":"M"}${sx(i)},${sy(v)}`).join(" "); g+=`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></path>`; s.ys.forEach((v,i)=>g+=`<circle cx="${sx(i)}" cy="${sy(v)}" r="4" fill="${col}" stroke="${css("--surface")}" stroke-width="2"></circle>`); });
+  xs.forEach((x,i)=>g+=`<rect x="${sx(i)-(W-L-R)/(xs.length-1)/2}" y="${T}" width="${(W-L-R)/(xs.length-1)}" height="${H-T-B}" fill="transparent" data-i="${i}"></rect>`);
+  g+="</svg>"; const el=$(elId); el.innerHTML=g;
+  el.querySelectorAll("rect[data-i]").forEach(r=>{ r.addEventListener("mousemove",e=>{ const i=+r.dataset.i; showTip(e,`<b>${esc(xs[i])}</b><br>`+series.map((s,k)=>`<span style="color:${css(SERIES_COL[k])}">●</span> ${esc(s.name)}: ${fmt(s.ys[i])}`).join("<br>")); }); r.addEventListener("mouseleave",hideTip); });
+  $(legId).innerHTML=series.map((s,k)=>`<span><i style="background:${css(SERIES_COL[k])}"></i>${esc(s.name)}</span>`).join("");
+}
+
+function renderLines(s){
+  const keys=Object.keys(KEY);
+  const xs1=Object.keys(SC.retraining_per_anno); const ser1=keys.map(k=>({name:KEY[k],ys:[]}));
+  xs1.forEach(x=>{ const res=model({...s,rt:SC.retraining_per_anno[x]}); keys.forEach((k,i)=>ser1[i].ys.push(res.find(r=>r.name===k).total)); });
+  lineChart("lineRt","legendRt",xs1,ser1);
+  const xs2=Object.keys(SC.cicli_inferenza_al_giorno).reverse(); const ser2=keys.map(k=>({name:KEY[k],ys:[]}));
+  xs2.forEach(x=>{ const res=model({...s,cyc:SC.cicli_inferenza_al_giorno[x]}); keys.forEach((k,i)=>ser2[i].ys.push(res.find(r=>r.name===k).total)); });
+  lineChart("lineInf","legendInf",xs2,ser2);
+}
+
+function renderFull(res,s){
+  const sorted=[...res].sort((a,b)=>a.total-b.total);
+  const head=`<thead><tr><th>Opzione</th>${CATS.map(([c])=>`<th class="n">${c}</th>`).join("")}<th class="n">Totale / anno</th><th class="n">TCO ${s.hor} anni</th><th class="n">Training / anno</th></tr></thead>`;
+  const body=sorted.map(r=>`<tr><td>${esc(r.name)}</td>${CATS.map(([c])=>{const v=Object.entries(r.items).filter(([k])=>!k.startsWith("_")&&cat(k)===c).reduce((p,[,v])=>p+v,0); return `<td class="n">${v?fmt(v):"–"}</td>`;}).join("")}<td class="n"><b>${fmt(r.total)}</b></td><td class="n">${fmt(r.tco)}</td><td class="n">${fmtH(r.h)}</td></tr>`).join("");
+  $("full").innerHTML=head+"<tbody>"+body+"</tbody>";
+}
+
+function update(){
+  const s=readState(); persist(s);
+  $("trialsV").textContent=s.trials+" trial × 80 epoche"; $("monthsV").textContent=s.months+" mesi"; $("canoneV").textContent=s.canone.toLocaleString("it-IT")+" €/mese";
+  const res=model(s);
+  const w=A.assumptions.workload; const sec=w.retraining.secondi_per_epoca_cpu; const nM=w.n_modelli;
+  const r1=nM*w.retraining.epoche_medie_per_modello*sec/3600, rh=nM*s.trials*w.hpo.epoche_per_trial*w.hpo.frazione_epoche_effettive*sec/3600;
+  $("hours").textContent=`un retraining dei 18 modelli ≈ ${fmtH(r1)} su CPU di riferimento (≈ ${fmtH(r1/3)} su GPU T4); una HPO completa ≈ ${fmtH(rh)} su CPU (≈ ${fmtH(rh/3)} su T4, parallelizzabile in cloud); ${Math.round(s.cyc*365*s.months/12).toLocaleString("it-IT")} cicli di inferenza all'anno.`;
+  renderKpis(res,s); renderRank(res,s); renderDetail(res); renderLines(s); renderFull(res,s);
+}
+restore();
+for(const id of ["rt","hpo","trials","cyc","months","hor","pricing","staff","support","setup","canone","fx"]) $(id).addEventListener("input",update);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change",update);
+new MutationObserver(update).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
+update();
+</script>
