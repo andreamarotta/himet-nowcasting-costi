@@ -89,6 +89,12 @@ button.lnk:focus-visible,select:focus-visible,input:focus-visible{outline:2px so
       <div class="tbl"><table id="det"></table></div>
     </section>
     <section class="panel">
+      <h2>CAPEX e OPEX sull'orizzonte scelto</h2>
+      <div id="capex"></div>
+      <div class="legend" id="legendCapex"></div>
+      <p class="note">CAPEX = esborso iniziale non ammortizzato (hardware, UPS, avviamento). OPEX = spesa corrente annua (calcolo, energia, storage, garanzia, personale, canone) moltiplicata per gli anni dell'orizzonte.</p>
+    </section>
+    <section class="panel">
       <h2>Come cambia il costo annuo con la frequenza di retraining</h2>
       <div id="lineRt"></div>
       <div class="legend" id="legendRt"></div>
@@ -137,7 +143,7 @@ function core(s){
   const trainH = sp => s.rt*retrainH(sp)+s.hpo*hpoH(sp);
   const hoursOn = HOURS*s.months/12, cyclesY = s.cyc*365*s.months/12;
   const staff = h => (s.staff&&h>0) ? {"Personale (gestione)": h*12*on.costo_orario_personale_eur} : {};
-  const av=a.avviamento; const setup = k => (s.setup && av.giornate[k]>0) ? {"Avviamento (una tantum, ammortizzato)": av.giornate[k]*av.tariffa_eur_giorno/s.hor} : {};
+  const av=a.avviamento; const setup = k => (s.setup && av.giornate[k]>0) ? {"Avviamento (una tantum, ammortizzato)": av.giornate[k]*av.tariffa_eur_giorno/s.hor, _capex_setup: av.giornate[k]*av.tariffa_eur_giorno} : {};
   const ec2h = (inst,pr)=> usd(aws.ec2[inst][{od:"od_usd_h",sp1:"ri1_usd_h",sp3:"ri3_usd_h"}[pr]]);
   const spot = inst => usd(aws.ec2[inst].spot_usd_h);
   const smh = inst => usd(aws.sagemaker.istanze_usd_h[inst]);
@@ -146,7 +152,7 @@ function core(s){
   for(const k of Object.keys(on.tiers)){ const t=on.tiers[k]; const th=trainH(t.speed_training);
     const over=Math.max(0, th-0.5*HOURS), local=th-over;
     const kwh=(t.w_idle*HOURS+(t.w_carico-t.w_idle)*local)/1000;
-    const it={ "Hardware (ammortamento)":(t.prezzo_eur+(t.ups_eur??on.ups_eur))/on.ammortamento_anni, "Supporto/garanzia":t.supporto_eur_anno, "Energia":kwh*on.energia_eur_kwh };
+    const it={ "Hardware (ammortamento)":(t.prezzo_eur+(t.ups_eur??on.ups_eur))/on.ammortamento_anni, "Supporto/garanzia":t.supporto_eur_anno, "Energia":kwh*on.energia_eur_kwh, _capex_hw:t.prezzo_eur+(t.ups_eur??on.ups_eur) };
     if(over>0){ const g=aws.istanza_training_gpu; it["Training eccedente (GPU spot in cloud)"]=over*t.speed_training/aws.ec2[g].speed_training*spot(g); }
     out["On-prem "+t.nome]={ ...it, ...staff(t.ore_sysadmin_mese??on.ore_sysadmin_mese), ...setup(k), _h:th, _h1:retrainH(t.speed_training), _hpo:hpoH(t.speed_training) }; }
   for(const [label,inst] of Object.entries(aws.istanze_alwayson)){
@@ -182,9 +188,11 @@ function model(s){
   const out=core(s);
   const base=core({...s,staff:false,setup:false})["Serverless: Lambda + AWS Batch Spot"];
   const man={...base,"Canone servizio gestito (da quotare)":s.canone*12};
-  const av=A.assumptions.avviamento; if(s.setup && av.giornate.gestito>0) man["Avviamento (una tantum, ammortizzato)"]=av.giornate.gestito*av.tariffa_eur_giorno/s.hor;
+  const av=A.assumptions.avviamento; if(s.setup && av.giornate.gestito>0){ man["Avviamento (una tantum, ammortizzato)"]=av.giornate.gestito*av.tariffa_eur_giorno/s.hor; man._capex_setup=av.giornate.gestito*av.tariffa_eur_giorno; }
   out["Servizio gestito (partner) su serverless"]=man;
-  return Object.entries(out).map(([name,it])=>({name,items:it,total:Object.entries(it).filter(([k])=>!k.startsWith("_")).reduce((p,[,v])=>p+v,0),h:it._h,h1:it._h1,hpo:it._hpo})).map(r=>({...r,tco:r.total*s.hor}));
+  return Object.entries(out).map(([name,it])=>{ const total=Object.entries(it).filter(([k])=>!k.startsWith("_")).reduce((p,[,v])=>p+v,0);
+    const capex=(it._capex_hw||0)+(it._capex_setup||0); const opex=total-(it["Hardware (ammortamento)"]||0)-(it["Avviamento (una tantum, ammortizzato)"]||0);
+    return {name,items:it,total,h:it._h,h1:it._h1,hpo:it._hpo,tco:total*s.hor,capex,opex}; });
 }
 
 // ---------------- stato e controlli ----------------
@@ -228,10 +236,25 @@ function renderKpis(res,s){
 function renderDetail(res){
   const r=res.find(x=>x.name===selected)||[...res].sort((a,b)=>a.total-b.total)[0]; selected=r.name;
   $("detTitle").textContent="Dettaglio voci: "+r.name;
-  let rows=Object.entries(r.items).filter(([k])=>!k.startsWith("_")).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${cat(k)}</td><td class="n">${fmt(v)}</td><td class="n">${(100*v/r.total).toFixed(0)}%</td></tr>`).join("");
-  rows+=`<tr><th>Totale annuo</th><th></th><th class="n">${fmt(r.total)}</th><th></th></tr>`;
+  const nat=k=>(k==="Hardware (ammortamento)"||k.startsWith("Avviamento"))?"CAPEX (ammortizzato)":"OPEX";
+  let rows=Object.entries(r.items).filter(([k])=>!k.startsWith("_")).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${cat(k)} · ${nat(k)}</td><td class="n">${fmt(v)}</td><td class="n">${(100*v/r.total).toFixed(0)}%</td></tr>`).join("");
+  rows+=`<tr><th>Totale annuo</th><th>CAPEX ${fmt(r.capex)} · OPEX ${fmt(r.opex)}/anno</th><th class="n">${fmt(r.total)}</th><th></th></tr>`;
   const extra=r.h1!=null?`<tr><td colspan="4" style="color:var(--fg2)">Su questa opzione un retraining completo dura circa ${fmtH(r.h1)}, una HPO completa ${fmtH(r.hpo)}; ore di training all'anno: ${fmtH(r.h)}.</td></tr>`:"";
   $("det").innerHTML=`<thead><tr><th>Voce</th><th>Categoria</th><th class="n">EUR/anno</th><th class="n">Quota</th></tr></thead><tbody>${rows}${extra}</tbody>`;
+}
+
+function renderCapex(res,s){
+  const sorted=[...res].sort((a,b)=>a.tco-b.tco); const max=Math.max(...sorted.map(r=>r.capex+r.opex*s.hor));
+  const W=760, L=10, R=170, rowH=40, H=sorted.length*rowH+10; const sx=v=>L+v/max*(W-L-R);
+  let g=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="CAPEX e OPEX per opzione">`;
+  sorted.forEach((r,i)=>{ const y=i*rowH; const c=r.capex, o=r.opex*s.hor;
+    g+=`<g><text class="lab" x="${L}" y="${y+12}">${esc(r.name)}</text>`;
+    if(c>0) g+=`<rect x="${sx(0)}" y="${y+17}" width="${Math.max(sx(c)-sx(0)-2,0.5)}" height="16" fill="${css("--s1")}" data-t="CAPEX: ${fmt(c)}"></rect>`;
+    g+=`<rect x="${sx(c)}" y="${y+17}" width="${Math.max(sx(c+o)-sx(c)-2,0.5)}" height="16" rx="3" fill="${css("--s2")}" data-t="OPEX: ${fmt(r.opex)} / anno × ${s.hor} anni = ${fmt(o)}"></rect>`;
+    g+=`<text class="val" x="${sx(c+o)+6}" y="${y+30}">${fmt(c)} + ${fmt(r.opex)}/anno</text></g>`; });
+  g+="</svg>"; $("capex").innerHTML=g;
+  $("capex").querySelectorAll("rect").forEach(el=>{ el.addEventListener("mousemove",e=>showTip(e,esc(el.dataset.t))); el.addEventListener("mouseleave",hideTip); });
+  $("legendCapex").innerHTML=`<span><i style="background:${css("--s1")}"></i>CAPEX (esborso iniziale)</span><span><i style="background:${css("--s2")}"></i>OPEX × ${s.hor} anni</span>`;
 }
 
 function lineChart(elId,legId,xs,series){
@@ -259,8 +282,8 @@ function renderLines(s){
 
 function renderFull(res,s){
   const sorted=[...res].sort((a,b)=>a.total-b.total);
-  const head=`<thead><tr><th>Opzione</th>${CATS.map(([c])=>`<th class="n">${c}</th>`).join("")}<th class="n">Totale / anno</th><th class="n">TCO ${s.hor} anni</th><th class="n">Training / anno</th></tr></thead>`;
-  const body=sorted.map(r=>`<tr><td>${esc(r.name)}</td>${CATS.map(([c])=>{const v=Object.entries(r.items).filter(([k])=>!k.startsWith("_")&&cat(k)===c).reduce((p,[,v])=>p+v,0); return `<td class="n">${v?fmt(v):"–"}</td>`;}).join("")}<td class="n"><b>${fmt(r.total)}</b></td><td class="n">${fmt(r.tco)}</td><td class="n">${fmtH(r.h)}</td></tr>`).join("");
+  const head=`<thead><tr><th>Opzione</th>${CATS.map(([c])=>`<th class="n">${c}</th>`).join("")}<th class="n">Totale / anno</th><th class="n">CAPEX</th><th class="n">OPEX / anno</th><th class="n">TCO ${s.hor} anni</th><th class="n">Training / anno</th></tr></thead>`;
+  const body=sorted.map(r=>`<tr><td>${esc(r.name)}</td>${CATS.map(([c])=>{const v=Object.entries(r.items).filter(([k])=>!k.startsWith("_")&&cat(k)===c).reduce((p,[,v])=>p+v,0); return `<td class="n">${v?fmt(v):"–"}</td>`;}).join("")}<td class="n"><b>${fmt(r.total)}</b></td><td class="n">${fmt(r.capex)}</td><td class="n">${fmt(r.opex)}</td><td class="n">${fmt(r.tco)}</td><td class="n">${fmtH(r.h)}</td></tr>`).join("");
   $("full").innerHTML=head+"<tbody>"+body+"</tbody>";
 }
 
@@ -271,7 +294,7 @@ function update(){
   const w=A.assumptions.workload; const sec=w.retraining.secondi_per_epoca_cpu; const nM=w.n_modelli;
   const r1=nM*w.retraining.epoche_medie_per_modello*sec/3600, rh=nM*s.trials*w.hpo.epoche_per_trial*w.hpo.frazione_epoche_effettive*sec/3600;
   $("hours").textContent=`un retraining dei 18 modelli ≈ ${fmtH(r1)} su CPU di riferimento (≈ ${fmtH(r1/3)} su GPU T4); una HPO completa ≈ ${fmtH(rh)} su CPU (≈ ${fmtH(rh/3)} su T4, parallelizzabile in cloud); ${Math.round(s.cyc*365*s.months/12).toLocaleString("it-IT")} cicli di inferenza all'anno.`;
-  renderKpis(res,s); renderRank(res,s); renderDetail(res); renderLines(s); renderFull(res,s);
+  renderKpis(res,s); renderRank(res,s); renderDetail(res); renderCapex(res,s); renderLines(s); renderFull(res,s);
 }
 restore();
 for(const id of ["rt","hpo","trials","cyc","months","hor","pricing","staff","support","setup","canone","fx"]) $(id).addEventListener("input",update);
