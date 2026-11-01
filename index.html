@@ -58,7 +58,7 @@ button.lnk:focus-visible,select:focus-visible,input:focus-visible{outline:2px so
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400&display=swap">
 <div class="wrap">
 <h1>Costi di esercizio del nowcasting HIMET: on-premise e AWS</h1>
-<p class="sub">Costo annuo e TCO delle alternative infrastrutturali per i 18 modelli LSTM di bias correction, in funzione di quanto spesso si riaddestra e quanto spesso si esegue l'inferenza. Prezzi AWS eu-central-1 del 29-30 ottobre 2026, hardware e energia Italia novembre 2026, IVA esclusa. Il costo include, se spuntati, il personale che gestisce la soluzione e l'avviamento una tantum ammortizzato sull'orizzonte. Le assunzioni sono modificabili in <code>infra/assumptions.yaml</code>.</p>
+<p class="sub">Costo annuo e TCO delle alternative infrastrutturali per i 18 modelli LSTM di bias correction, in funzione di quanto spesso si riaddestra e quanto spesso si esegue l'inferenza. HIMET non ha competenze per gestire il cloud in proprio: le opzioni "EC2", "Serverless" e "SageMaker" sono un riferimento tecnologico (il costo per chi le sa gestire) e si mostrano togliendo la spunta "Solo opzioni percorribili da HIMET". Prezzi AWS eu-central-1 del 29-30 ottobre 2026, hardware e energia Italia novembre 2026, IVA esclusa. Il costo include, se spuntati, il personale che gestisce la soluzione e l'avviamento una tantum ammortizzato sull'orizzonte. Le assunzioni sono modificabili in <code>infra/assumptions.yaml</code>.</p>
 <div class="grid">
   <aside class="panel ctl" aria-label="Parametri">
     <h2>Parametri</h2>
@@ -72,6 +72,7 @@ button.lnk:focus-visible,select:focus-visible,input:focus-visible{outline:2px so
     <label class="chk"><input type="checkbox" id="staff" checked> Includi personale interno</label>
     <label class="chk"><input type="checkbox" id="support"> Includi AWS Business Support+</label>
     <label class="chk"><input type="checkbox" id="setup" checked> Includi avviamento una tantum (ammortizzato)</label>
+    <label class="chk"><input type="checkbox" id="onlyfeasible" checked> Solo opzioni percorribili da HIMET (nasconde il cloud gestito in proprio)</label>
     <label>Canone servizio gestito (EUR/mese, illustrativo) <span class="v" id="canoneV"></span><input type="range" id="canone" min="0" max="1500" step="50" value="300"></label>
     <label>Cambio USD→EUR <input type="number" id="fx" step="0.01" min="0.5" max="1.5"></label>
     <p class="note">Ore di training stimate con questi parametri: <span id="hours"></span></p>
@@ -184,12 +185,14 @@ function core(s){
   out["SageMaker: Batch Transform per ciclo + Training Jobs"]=serverless("sm_batch","sagemaker");
   return out;
 }
+const feasible = name => name.startsWith("On-prem") || name.startsWith("Servizio gestito");
 function model(s){
   const out=core(s);
   const base=core({...s,staff:false,setup:false})["Serverless: Lambda + AWS Batch Spot"];
   const man={...base,"Canone servizio gestito (da quotare)":s.canone*12};
   const av=A.assumptions.avviamento; if(s.setup && av.giornate.gestito>0){ man["Avviamento (una tantum, ammortizzato)"]=av.giornate.gestito*av.tariffa_eur_giorno/s.hor; man._capex_setup=av.giornate.gestito*av.tariffa_eur_giorno; }
   out["Servizio gestito (partner) su serverless"]=man;
+  if(s.onlyfeasible) for(const k of Object.keys(out)) if(!feasible(k)) delete out[k];
   return Object.entries(out).map(([name,it])=>{ const total=Object.entries(it).filter(([k])=>!k.startsWith("_")).reduce((p,[,v])=>p+v,0);
     const capex=(it._capex_hw||0)+(it._capex_setup||0); const opex=total-(it["Hardware (ammortamento)"]||0)-(it["Avviamento (una tantum, ammortizzato)"]||0);
     return {name,items:it,total,h:it._h,h1:it._h1,hpo:it._hpo,tco:total*s.hor,capex,opex}; });
@@ -201,9 +204,9 @@ const SC=A.assumptions.scenari;
 for(const [k,v] of Object.entries(SC.retraining_per_anno)){ const o=document.createElement("option"); o.value=v; o.textContent=k; if(v===12)o.selected=true; $("rt").appendChild(o); }
 for(const [k,v] of Object.entries(SC.cicli_inferenza_al_giorno)){ const o=document.createElement("option"); o.value=v; o.textContent=k; if(v===96)o.selected=true; $("cyc").appendChild(o); }
 $("fx").value=A.assumptions.fx.usd_to_eur;
-function readState(){ return { rt:+$("rt").value, hpo:+$("hpo").value, trials:+$("trials").value, cyc:+$("cyc").value, months:+$("months").value, hor:+$("hor").value, pricing:$("pricing").value, staff:$("staff").checked, support:$("support").checked, setup:$("setup").checked, canone:+$("canone").value, fx:+$("fx").value||0.9 }; }
+function readState(){ return { rt:+$("rt").value, hpo:+$("hpo").value, trials:+$("trials").value, cyc:+$("cyc").value, months:+$("months").value, hor:+$("hor").value, pricing:$("pricing").value, staff:$("staff").checked, support:$("support").checked, setup:$("setup").checked, onlyfeasible:$("onlyfeasible").checked, canone:+$("canone").value, fx:+$("fx").value||0.9 }; }
 let selected=null;
-function restore(){ try{ const st=JSON.parse(localStorage.getItem("himet-costi")||"null"); if(!st)return; for(const k of ["rt","hpo","trials","cyc","months","hor","pricing","canone","fx"]) if(st[k]!=null) $(k).value=st[k]; if(st.staff!=null)$("staff").checked=st.staff; if(st.support!=null)$("support").checked=st.support; if(st.setup!=null)$("setup").checked=st.setup; }catch(e){} }
+function restore(){ try{ const st=JSON.parse(localStorage.getItem("himet-costi")||"null"); if(!st)return; for(const k of ["rt","hpo","trials","cyc","months","hor","pricing","canone","fx"]) if(st[k]!=null) $(k).value=st[k]; if(st.staff!=null)$("staff").checked=st.staff; if(st.support!=null)$("support").checked=st.support; if(st.setup!=null)$("setup").checked=st.setup; if(st.onlyfeasible!=null)$("onlyfeasible").checked=st.onlyfeasible; }catch(e){} }
 function persist(s){ try{ localStorage.setItem("himet-costi",JSON.stringify(s)); }catch(e){} }
 
 // ---------------- rendering ----------------
@@ -228,8 +231,9 @@ function renderRank(res,s){
 
 function renderKpis(res,s){
   const sorted=[...res].sort((a,b)=>a.total-b.total);
-  const best=sorted[0]; const onp=sorted.find(r=>r.name.startsWith("On-prem")); const aws=sorted.find(r=>!r.name.startsWith("On-prem")&&!r.name.startsWith("Servizio"));
-  const k=[["Opzione più economica",fmt(best.total)+" / anno",best.name],["On-prem più economica",fmt(onp.total)+" / anno",onp.name],["AWS più economica",fmt(aws.total)+" / anno",aws.name],[`TCO ${s.hor} anni, on-prem − AWS self-managed`,fmt(onp.tco-aws.tco),onp.tco>aws.tco?"a favore di AWS":"a favore dell'on-prem"]];
+  const best=sorted[0]; const onp=sorted.find(r=>r.name.startsWith("On-prem")); const man=sorted.find(r=>r.name.startsWith("Servizio")); const aws=sorted.find(r=>!r.name.startsWith("On-prem")&&!r.name.startsWith("Servizio"));
+  const k=[["Opzione più economica",fmt(best.total)+" / anno",best.name],["On-prem più economica",fmt(onp.total)+" / anno",onp.name],["Servizio gestito",fmt(man.total)+" / anno","canone illustrativo "+s.canone.toLocaleString("it-IT")+" €/mese"],[`TCO ${s.hor} anni, gestito − on-prem più economica`,fmt(man.tco-onp.tco),man.tco>onp.tco?"in più per il servizio gestito":"in meno per il servizio gestito"]];
+  if(aws) k.push(["Riferimento cloud in proprio",fmt(aws.total)+" / anno",aws.name+" (richiede competenze AWS)"]);
   $("kpis").innerHTML=k.map(([l,n,d])=>`<div class="kpi"><div class="l">${l}</div><div class="n">${n}</div><div class="d">${esc(d)}</div></div>`).join("");
 }
 
@@ -271,7 +275,7 @@ function lineChart(elId,legId,xs,series){
 }
 
 function renderLines(s){
-  const keys=Object.keys(KEY);
+  const keys=Object.keys(KEY).filter(k=>!s.onlyfeasible||feasible(k));
   const xs1=Object.keys(SC.retraining_per_anno); const ser1=keys.map(k=>({name:KEY[k],ys:[]}));
   xs1.forEach(x=>{ const res=model({...s,rt:SC.retraining_per_anno[x]}); keys.forEach((k,i)=>ser1[i].ys.push(res.find(r=>r.name===k).total)); });
   lineChart("lineRt","legendRt",xs1,ser1);
@@ -297,7 +301,7 @@ function update(){
   renderKpis(res,s); renderRank(res,s); renderDetail(res); renderCapex(res,s); renderLines(s); renderFull(res,s);
 }
 restore();
-for(const id of ["rt","hpo","trials","cyc","months","hor","pricing","staff","support","setup","canone","fx"]) $(id).addEventListener("input",update);
+for(const id of ["rt","hpo","trials","cyc","months","hor","pricing","staff","support","setup","onlyfeasible","canone","fx"]) $(id).addEventListener("input",update);
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change",update);
 new MutationObserver(update).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
 update();
