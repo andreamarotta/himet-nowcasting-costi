@@ -39,6 +39,8 @@ svg{display:block;width:100%;height:auto;overflow:visible}
 svg text{font-family:var(--font-body);fill:var(--fg2);font-size:11px}
 svg text.lab{fill:var(--fg);font-size:11.5px}
 svg text.val{fill:var(--fg);font-variant-numeric:tabular-nums}
+svg text.desc{fill:var(--fg2);font-size:10px}
+td .d{display:block;color:var(--fg2);font-size:11.5px;margin-top:2px}
 svg .grid line{stroke:var(--line);stroke-width:1}
 .legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--fg2);margin-top:8px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
@@ -87,6 +89,7 @@ button.lnk:focus-visible,select:focus-visible,input:focus-visible{outline:2px so
     </section>
     <section class="panel">
       <h2 id="detTitle">Dettaglio voci</h2>
+      <p class="note" id="detDesc" style="margin:-4px 0 10px"></p>
       <div class="tbl"><table id="det"></table></div>
     </section>
     <section class="panel">
@@ -127,6 +130,23 @@ const KEY = {
   "SageMaker: Serverless Inference + Training Jobs":"SageMaker serverless + Training Jobs",
 };
 const SERIES_COL = ["--s1","--s2","--s3","--s4","--s5","--s6","--s7","--s8"];
+const DESC = {
+  "On-prem A0: micro (Raspberry Pi 5 8 GB o mini-PC N100, 16 GB, SSD)":"Micro-computer in sede da ~250 €: basta per l'inferenza e il riaddestramento mensile; la ricerca degli iperparametri va fatta altrove.",
+  "On-prem A: mini-PC CPU (P3 Tiny / NUC 14 Pro, 32 GB, 1 TB)":"Mini-PC professionale in sede, senza GPU: più margine, garanzia on-site, stessa gestione.",
+  "On-prem B: workstation GPU (Dell Pro Max T2, 64 GB, RTX 2000 Ada)":"Workstation con GPU da workstation in sede: fa tutto, inclusa la ricerca degli iperparametri in tempi accettabili.",
+  "On-prem C: server rack 1U (16 core, 128 GB ECC, NVIDIA L4, 2 PSU)":"Server rack con GPU datacenter e alimentazione ridondata: sovradimensionato, solo per policy di sala macchine.",
+  "EC2 piccola burstable sempre accesa (t4g.medium)":"Piccola macchina virtuale AWS sempre accesa (2 vCPU) che fa l'inferenza; il training va a consumo su AWS Batch.",
+  "EC2 CPU sempre accesa (c7i.xlarge)":"Macchina virtuale AWS da 4 vCPU sempre accesa: inferenza e training sulla stessa istanza, pagata 24/7.",
+  "EC2 GPU sempre accesa (g4dn.xlarge)":"Macchina virtuale AWS con GPU T4 sempre accesa: si paga la GPU tutto l'anno per usarla poche ore.",
+  "Serverless: Lambda + AWS Batch Spot":"Nessuna macchina: una funzione Lambda ogni 15 minuti per l'inferenza, job AWS Batch su istanze Spot per il training. Architettura cloud di riferimento.",
+  "Serverless: Fargate + AWS Batch Spot":"Come la precedente, con un container Fargate schedulato al posto di Lambda (utile oltre i limiti di Lambda).",
+  "Serverless: Lambda + AWS Batch on-demand":"Come la serverless di riferimento, ma con il training su istanze on-demand invece che Spot: nessuna interruzione, costo del training doppio.",
+  "SageMaker: Serverless Inference + Training Jobs":"Piattaforma ML gestita di AWS: inferenza serverless e Training Jobs, +20-40% sui prezzi in cambio di tracciamento e deployment integrati.",
+  "SageMaker: endpoint real-time + Training Jobs":"SageMaker con un endpoint sempre acceso per servire 96 richieste al giorno: paga l'istanza 24/7.",
+  "SageMaker: Batch Transform per ciclo + Training Jobs":"SageMaker che avvia e spegne un'istanza a ogni ciclo di 15 minuti: l'avvio costa più del calcolo.",
+  "Servizio gestito (partner) su serverless":"Un partner eroga il nowcasting come servizio sulla propria infrastruttura serverless (esercizio, monitoraggio, riaddestramenti, evoluzione); HIMET paga un canone, senza hardware né competenze cloud.",
+};
+const desc = name => DESC[name] || "";
 const fmt = x => Math.round(x).toLocaleString("it-IT") + " €";
 const fmtH = h => h<1 ? Math.round(h*60)+" min" : (h<48 ? h.toFixed(1)+" h" : (h/24).toFixed(1)+" giorni");
 const cat = l => { l=l.toLowerCase(); if(l.includes("personale"))return "Personale"; if(l.includes("avviamento"))return "Avviamento (una tantum)"; if(l.includes("canone"))return "Canone gestito"; if(l.includes("supporto")||l.includes("support"))return "Supporto"; if(l.includes("energia")||l.includes("storage")||l.includes("ebs")||l.includes("eventbridge"))return "Energia / storage / rete"; return "Hardware / calcolo"; };
@@ -217,12 +237,12 @@ const esc=t=>String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;");
 
 function renderRank(res,s){
   const sorted=[...res].sort((a,b)=>a.total-b.total); const max=Math.max(...sorted.map(r=>r.total));
-  const W=760, L=10, R=90, rowH=40, H=sorted.length*rowH+10; const sx=v=>L+v/max*(W-L-R);
+  const W=760, L=10, R=90, rowH=56, H=sorted.length*rowH+10; const sx=v=>L+v/max*(W-L-R);
   let g=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Costo annuo per opzione">`;
   sorted.forEach((r,i)=>{ const y=i*rowH; let x=sx(0); const sel=r.name===selected?" sel":"";
-    g+=`<g class="bar${sel}" data-name="${esc(r.name)}"><text class="lab" x="${L}" y="${y+12}">${esc(r.name)}</text>`;
-    for(const [c,v] of CATS){ const val=Object.entries(r.items).filter(([k])=>!k.startsWith("_")&&cat(k)===c).reduce((p,[,v])=>p+v,0); if(val<=0)continue; const w=sx(val)-sx(0); g+=`<rect x="${x}" y="${y+17}" width="${Math.max(w-2,0.5)}" height="16" rx="${c===CATS[CATS.length-1][0]||x+w>=sx(r.total)-0.01?3:0}" fill="${css(v)}" data-cat="${c}" data-val="${val}"></rect>`; x+=w; }
-    g+=`<text class="val" x="${sx(r.total)+6}" y="${y+30}">${fmt(r.total)}</text></g>`; });
+    g+=`<g class="bar${sel}" data-name="${esc(r.name)}"><text class="lab" x="${L}" y="${y+12}">${esc(r.name)}</text><text class="desc" x="${L}" y="${y+25}">${esc(desc(r.name))}</text>`;
+    for(const [c,v] of CATS){ const val=Object.entries(r.items).filter(([k])=>!k.startsWith("_")&&cat(k)===c).reduce((p,[,v])=>p+v,0); if(val<=0)continue; const w=sx(val)-sx(0); g+=`<rect x="${x}" y="${y+31}" width="${Math.max(w-2,0.5)}" height="16" rx="${c===CATS[CATS.length-1][0]||x+w>=sx(r.total)-0.01?3:0}" fill="${css(v)}" data-cat="${c}" data-val="${val}"></rect>`; x+=w; }
+    g+=`<text class="val" x="${sx(r.total)+6}" y="${y+44}">${fmt(r.total)}</text></g>`; });
   g+="</svg>"; $("rank").innerHTML=g;
   $("rank").querySelectorAll("rect").forEach(el=>{ el.addEventListener("mousemove",e=>showTip(e,`<b>${esc(el.dataset.cat)}</b><br>${fmt(+el.dataset.val)} / anno`)); el.addEventListener("mouseleave",hideTip); });
   $("rank").querySelectorAll("g.bar").forEach(el=>el.addEventListener("click",()=>{ selected=el.dataset.name; update(); }));
@@ -239,7 +259,7 @@ function renderKpis(res,s){
 
 function renderDetail(res){
   const r=res.find(x=>x.name===selected)||[...res].sort((a,b)=>a.total-b.total)[0]; selected=r.name;
-  $("detTitle").textContent="Dettaglio voci: "+r.name;
+  $("detTitle").textContent="Dettaglio voci: "+r.name; $("detDesc").textContent=desc(r.name);
   const nat=k=>(k==="Hardware (ammortamento)"||k.startsWith("Avviamento"))?"CAPEX (ammortizzato)":"OPEX";
   let rows=Object.entries(r.items).filter(([k])=>!k.startsWith("_")).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${cat(k)} · ${nat(k)}</td><td class="n">${fmt(v)}</td><td class="n">${(100*v/r.total).toFixed(0)}%</td></tr>`).join("");
   rows+=`<tr><th>Totale annuo</th><th>CAPEX ${fmt(r.capex)} · OPEX ${fmt(r.opex)}/anno</th><th class="n">${fmt(r.total)}</th><th></th></tr>`;
@@ -252,7 +272,7 @@ function renderCapex(res,s){
   const W=760, L=10, R=170, rowH=40, H=sorted.length*rowH+10; const sx=v=>L+v/max*(W-L-R);
   let g=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="CAPEX e OPEX per opzione">`;
   sorted.forEach((r,i)=>{ const y=i*rowH; const c=r.capex, o=r.opex*s.hor;
-    g+=`<g><text class="lab" x="${L}" y="${y+12}">${esc(r.name)}</text>`;
+    g+=`<g><title>${esc(desc(r.name))}</title><text class="lab" x="${L}" y="${y+12}">${esc(r.name)}</text>`;
     if(c>0) g+=`<rect x="${sx(0)}" y="${y+17}" width="${Math.max(sx(c)-sx(0)-2,0.5)}" height="16" fill="${css("--s1")}" data-t="CAPEX: ${fmt(c)}"></rect>`;
     g+=`<rect x="${sx(c)}" y="${y+17}" width="${Math.max(sx(c+o)-sx(c)-2,0.5)}" height="16" rx="3" fill="${css("--s2")}" data-t="OPEX: ${fmt(r.opex)} / anno × ${s.hor} anni = ${fmt(o)}"></rect>`;
     g+=`<text class="val" x="${sx(c+o)+6}" y="${y+30}">${fmt(c)} + ${fmt(r.opex)}/anno</text></g>`; });
@@ -287,7 +307,7 @@ function renderLines(s){
 function renderFull(res,s){
   const sorted=[...res].sort((a,b)=>a.total-b.total);
   const head=`<thead><tr><th>Opzione</th>${CATS.map(([c])=>`<th class="n">${c}</th>`).join("")}<th class="n">Totale / anno</th><th class="n">CAPEX</th><th class="n">OPEX / anno</th><th class="n">TCO ${s.hor} anni</th><th class="n">Training / anno</th></tr></thead>`;
-  const body=sorted.map(r=>`<tr><td>${esc(r.name)}</td>${CATS.map(([c])=>{const v=Object.entries(r.items).filter(([k])=>!k.startsWith("_")&&cat(k)===c).reduce((p,[,v])=>p+v,0); return `<td class="n">${v?fmt(v):"–"}</td>`;}).join("")}<td class="n"><b>${fmt(r.total)}</b></td><td class="n">${fmt(r.capex)}</td><td class="n">${fmt(r.opex)}</td><td class="n">${fmt(r.tco)}</td><td class="n">${fmtH(r.h)}</td></tr>`).join("");
+  const body=sorted.map(r=>`<tr><td>${esc(r.name)}<span class="d">${esc(desc(r.name))}</span></td>${CATS.map(([c])=>{const v=Object.entries(r.items).filter(([k])=>!k.startsWith("_")&&cat(k)===c).reduce((p,[,v])=>p+v,0); return `<td class="n">${v?fmt(v):"–"}</td>`;}).join("")}<td class="n"><b>${fmt(r.total)}</b></td><td class="n">${fmt(r.capex)}</td><td class="n">${fmt(r.opex)}</td><td class="n">${fmt(r.tco)}</td><td class="n">${fmtH(r.h)}</td></tr>`).join("");
   $("full").innerHTML=head+"<tbody>"+body+"</tbody>";
 }
 
